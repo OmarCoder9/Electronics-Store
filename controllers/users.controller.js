@@ -25,15 +25,6 @@ const getUser = asyncWrapper(async (req, res, next) => {
   return res.json({ status: httpStatusText.SUCCESS, data: { user } });
 });
 
-const addUser = asyncWrapper(async (req, res, next) => {
-  const newUser = new User(req.body);
-
-  await newUser.save();
-
-  res
-    .status(201)
-    .json({ status: httpStatusText.SUCCESS, data: { course: newUser } });
-});
 
 const updateUser = asyncWrapper(async (req, res, next) => {
   const userId = req.params.userId;
@@ -127,7 +118,6 @@ const loginUser = asyncWrapper(async (req, res, next) => {
 module.exports = {
   getAllUsers,
   getUser,
-  addUser,
   updateUser,
   deleteUser,
   registerUser,

@@ -13,7 +13,20 @@ const verifyToken = (req, res, next) => {
     );
     return next(error);
   }
-  const token = authHeader.split(" ")[1];
+
+  const token = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : authHeader;
+
+  if (!token) {
+    const error = appError.create(
+      "Token is Required",
+      401,
+      httpStatusText.ERROR,
+    );
+    return next(error);
+  }
+
   try {
     const currentUser = jwt.verify(token, process.env.JWT_SECRET_KEY);
     req.currentUser = currentUser;
