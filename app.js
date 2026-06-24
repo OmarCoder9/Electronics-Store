@@ -3,7 +3,7 @@ const express = require("express")
 const mongoose = require("mongoose")
 const app = express();
 const cors = require("cors")
-const userRouter = require("./routes/product.route")
+const userRouter = require("./routes/user.route")
 const url = process.env.MONGO_URL;
 mongoose.connect(url).then(()=>console.log("MongoDB Server Started"))
 
