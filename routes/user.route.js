@@ -5,9 +5,7 @@ const router = express.Router();
 const allowedTo = require("../middlewares/allowedTo");
 const userRoles = require("../utils/userRoles");
 
-router
-  .route("/")
-  .get(verifyToken, userController.getAllUsers)
+router.route("/").get(verifyToken, userController.getAllUsers);
 
 router.route("/register").post(userController.registerUser);
 router.route("/login").post(userController.loginUser);

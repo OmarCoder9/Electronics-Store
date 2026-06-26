@@ -3,7 +3,7 @@ const User = require("../models/user.model");
 const appError = require("../utils/appError");
 const httpStatusText = require("../utils/httpStatusText");
 const bcrypt = require("bcryptjs");
-const generateJWT = require("../utils/generateJWT")
+const generateJWT = require("../utils/generateJWT");
 
 const getAllUsers = asyncWrapper(async (req, res) => {
   const query = req.query;
@@ -11,7 +11,7 @@ const getAllUsers = asyncWrapper(async (req, res) => {
   const page = +query.page || 1;
   const skip = (page - 1) * limit;
 
-  const users = await User.find({}, { __v: false }).limit(limit).skip(skip);
+  const users = await User.find().limit(limit).skip(skip);
 
   res.json({ status: httpStatusText.SUCCESS, data: { users } });
 });
@@ -25,27 +25,38 @@ const getUser = asyncWrapper(async (req, res, next) => {
   return res.json({ status: httpStatusText.SUCCESS, data: { user } });
 });
 
-
 const updateUser = asyncWrapper(async (req, res, next) => {
   const userId = req.params.userId;
   const updateData = { ...req.body };
 
-  // If password is being updated, hash it before saving
   if (updateData.password) {
     updateData.password = await bcrypt.hash(updateData.password, 10);
   }
 
-  const updatedUser = await User.updateOne(
-    { _id: userId },
+  const updatedUser = await User.findByIdAndUpdate(
+    userId,
     { $set: updateData },
+    { new: true },
   );
+
+  if (!updatedUser) {
+    const error = appError.create("User Not Found", 404, httpStatusText.FAIL);
+    return next(error);
+  }
+
   return res
     .status(200)
     .json({ status: httpStatusText.SUCCESS, data: { user: updatedUser } });
 });
 
-const deleteUser = asyncWrapper(async (req, res) => {
-  await User.deleteOne({ _id: req.params.userId });
+const deleteUser = asyncWrapper(async (req, res, next) => {
+  const deletedUser = await User.findByIdAndDelete(req.params.userId);
+
+  if (!deletedUser) {
+    const error = appError.create("User Not Found", 404, httpStatusText.FAIL);
+    return next(error);
+  }
+
   res.status(200).json({ status: httpStatusText.SUCCESS, data: null });
 });
 
@@ -71,12 +82,12 @@ const registerUser = asyncWrapper(async (req, res, next) => {
     role,
   });
   const token = await generateJWT({
-      email: newUser.email,
-      id: newUser._id,
-      role: newUser.role,
-    });
-    const returnedUser = { firstName, lastName, email, role, token };
-    await newUser.save();
+    email: newUser.email,
+    id: newUser._id,
+    role: newUser.role,
+  });
+  const returnedUser = { firstName, lastName, email, role, token };
+  await newUser.save();
 
   res
     .status(201)
