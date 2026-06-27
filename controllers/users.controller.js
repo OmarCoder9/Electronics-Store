@@ -4,33 +4,67 @@ const appError = require("../utils/appError");
 const httpStatusText = require("../utils/httpStatusText");
 const bcrypt = require("bcryptjs");
 const generateJWT = require("../utils/generateJWT");
+const getPagination = require("../utils/getPagination");
+const hashPassword = require("../utils/hashPassword");
+const userRoles = require("../utils/userRoles");
+
+const formatAuthResponse = (user, token) => ({
+  user: {
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    role: user.role,
+  },
+  token,
+});
+
+const isSelfOrAdmin = (req, userId) =>
+  String(req.currentUser.id) === String(userId) ||
+  req.currentUser.role === userRoles.ADMIN;
 
 const getAllUsers = asyncWrapper(async (req, res) => {
-  const query = req.query;
-  const limit = +query.limit || 20;
-  const page = +query.page || 1;
-  const skip = (page - 1) * limit;
-
+  const { limit, skip } = getPagination(req.query);
   const users = await User.find().limit(limit).skip(skip);
-
   res.json({ status: httpStatusText.SUCCESS, data: { users } });
 });
 
 const getUser = asyncWrapper(async (req, res, next) => {
+  if (!isSelfOrAdmin(req, req.params.userId)) {
+    return next(
+      appError.create("Not authorized", 403, httpStatusText.FAIL),
+    );
+  }
+
   const user = await User.findById(req.params.userId);
   if (!user) {
-    const error = appError.create("User Not Found", 404, httpStatusText.FAIL);
-    return next(error);
+    return next(appError.create("User Not Found", 404, httpStatusText.FAIL));
   }
   return res.json({ status: httpStatusText.SUCCESS, data: { user } });
 });
 
 const updateUser = asyncWrapper(async (req, res, next) => {
   const userId = req.params.userId;
-  const updateData = { ...req.body };
+
+  if (!isSelfOrAdmin(req, userId)) {
+    return next(
+      appError.create("Not authorized", 403, httpStatusText.FAIL),
+    );
+  }
+
+  const allowedFields = ["firstName", "lastName", "email", "password"];
+  const updateData = {};
+  for (const field of allowedFields) {
+    if (req.body[field] !== undefined) {
+      updateData[field] = req.body[field];
+    }
+  }
+
+  if (req.currentUser.role === userRoles.ADMIN && req.body.role !== undefined) {
+    updateData.role = req.body.role;
+  }
 
   if (updateData.password) {
-    updateData.password = await bcrypt.hash(updateData.password, 10);
+    updateData.password = await hashPassword(updateData.password);
   }
 
   const updatedUser = await User.findByIdAndUpdate(
@@ -40,8 +74,7 @@ const updateUser = asyncWrapper(async (req, res, next) => {
   );
 
   if (!updatedUser) {
-    const error = appError.create("User Not Found", 404, httpStatusText.FAIL);
-    return next(error);
+    return next(appError.create("User Not Found", 404, httpStatusText.FAIL));
   }
 
   return res
@@ -53,77 +86,77 @@ const deleteUser = asyncWrapper(async (req, res, next) => {
   const deletedUser = await User.findByIdAndDelete(req.params.userId);
 
   if (!deletedUser) {
-    const error = appError.create("User Not Found", 404, httpStatusText.FAIL);
-    return next(error);
+    return next(appError.create("User Not Found", 404, httpStatusText.FAIL));
   }
 
   res.status(200).json({ status: httpStatusText.SUCCESS, data: null });
 });
 
 const registerUser = asyncWrapper(async (req, res, next) => {
-  const { firstName, lastName, email, password, role } = req.body;
+  const { firstName, lastName, email, password } = req.body;
 
-  const oldUser = await User.findOne({ email: email });
+  const oldUser = await User.findOne({ email });
   if (oldUser) {
-    const error = appError.create(
-      "User Already Exists",
-      400,
-      httpStatusText.FAIL,
+    return next(
+      appError.create("User Already Exists", 400, httpStatusText.FAIL),
     );
-    return next(error);
   }
 
-  const hashedPassword = await bcrypt.hash(password, 10);
   const newUser = new User({
     firstName,
     lastName,
     email,
-    password: hashedPassword,
-    role,
+    password: await hashPassword(password),
   });
+  await newUser.save();
+
   const token = await generateJWT({
     email: newUser.email,
     id: newUser._id,
     role: newUser.role,
   });
-  const returnedUser = { firstName, lastName, email, role, token };
-  await newUser.save();
 
-  res
-    .status(201)
-    .json({ status: httpStatusText.SUCCESS, data: { user: returnedUser } });
+  res.status(201).json({
+    status: httpStatusText.SUCCESS,
+    data: formatAuthResponse(newUser, token),
+  });
 });
+
 const loginUser = asyncWrapper(async (req, res, next) => {
   const { email, password } = req.body;
-  if (!email || !password) {
-    const error = appError.create(
-      "Email and Password are required",
-      400,
-      httpStatusText.FAIL,
-    );
-    return next(error);
-  }
-  const user = await User.findOne({ email: email });
+  const user = await User.findOne({ email }).select("+password");
+
   if (!user) {
-    const error = appError.create("User not found", 400, httpStatusText.FAIL);
-    return next(error);
-  }
-  const matchedPassword = await bcrypt.compare(password, user.password);
-  if (user && matchedPassword) {
-    const token = await generateJWT({
-      email: user.email,
-      id: user._id,
-      role: user.role,
-    });
-    res.json({ status: httpStatusText.SUCCESS, data: { token } });
-  } else {
-    const error = appError.create(
-      "Invalid email or paswword",
-      401,
-      httpStatusText.ERROR,
+    return next(
+      appError.create(
+        "Invalid email or password",
+        401,
+        httpStatusText.ERROR,
+      ),
     );
-    return next(error);
   }
+
+  const matchedPassword = await bcrypt.compare(password, user.password);
+  if (!matchedPassword) {
+    return next(
+      appError.create(
+        "Invalid email or password",
+        401,
+        httpStatusText.ERROR,
+      ),
+    );
+  }
+
+  const token = await generateJWT({
+    email: user.email,
+    id: user._id,
+    role: user.role,
+  });
+
+  res.json({
+    status: httpStatusText.SUCCESS,
+    data: formatAuthResponse(user, token),
+  });
 });
 
 module.exports = {

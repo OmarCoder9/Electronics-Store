@@ -2,15 +2,11 @@ const asyncWrapper = require("../middlewares/asyncWrapper");
 const Product = require("../models/product.model");
 const appError = require("../utils/appError");
 const httpStatusText = require("../utils/httpStatusText");
+const getPagination = require("../utils/getPagination");
 
 const getAllProducts = asyncWrapper(async (req, res) => {
-  const query = req.query;
-  const limit = +query.limit || 20;
-  const page = +query.page || 1;
-  const skip = (page - 1) * limit;
-
+  const { limit, skip } = getPagination(req.query);
   const products = await Product.find().limit(limit).skip(skip);
-  console.log(products);
   res.json({ status: httpStatusText.SUCCESS, data: { products } });
 });
 
